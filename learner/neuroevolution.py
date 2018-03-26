@@ -1,6 +1,8 @@
+from evolute import DifferentialEvolution
+from evolute.fitness import SimpleFunction
+
 from .abstract_learner import Learner
 from .backpropagation import BackpropNetwork
-from ..evolution import DifferentialEvolution, MemeticAlgorithm
 
 
 class NeuroEvolution(Learner):
@@ -8,7 +10,6 @@ class NeuroEvolution(Learner):
     def __init__(self, layerstack, cost, population_size, name="", **kw):
         super().__init__(layerstack, cost, name, **kw)
         self.fitness_function = kw.pop("fitness_function", self.fitness)
-        self.fitness_weights = kw.pop("fitness_weights", [1.])
         self.on_accuracy = kw.pop("on_accuracy", False)
         self.population_size = population_size
         self.kws = kw
@@ -31,13 +32,12 @@ class DifferentialNeuroevolution(NeuroEvolution):
         super().__init__(layerstack, cost, population_size, name, **kw)
         self.population = DifferentialEvolution(
             loci=self.layers.nparams,
-            fitness_function=self.fitness_function,
-            fitness_weights=self.fitness_weights,
+            fitness_wrapper=SimpleFunction(self.fitness_function),
             limit=self.population_size, **kw
         )
 
     def fitness(self, genome, X, Y):
-        self.layers.set_weights(self.as_weights(genome))
+        self.layers.set_weights(genome)
         result = self.evaluate(X, Y, classify=self.on_accuracy)
         return (1. - result[-1]) if self.on_accuracy else result
 

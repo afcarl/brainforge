@@ -2,14 +2,10 @@ import numpy as np
 
 from matplotlib import pyplot as plt
 
-from brainforge import DifferentialNeuroevolution
+from brainforge import BackpropNetwork
 from brainforge.layers import DenseLayer
-from brainforge.evolution import DifferentialEvolution
 
-# from keras.models import Sequential
-# from keras.layers import Dense
-
-# np.random.seed(1234)
+np.random.seed(1234)
 
 rX = np.linspace(-6., 6., 200)[:, None]
 rY = np.sin(rX)
@@ -27,26 +23,16 @@ tX += np.random.randn(*tX.shape) / np.sqrt(tX.size*0.25)
 
 
 def forge_net():
-    net = DifferentialNeuroevolution(input_shape=(1,), layerstack=[
-        DenseLayer(30, activation="relu"),
-        DenseLayer(30, activation="relu"),
+    net = BackpropNetwork(input_shape=(1,), layerstack=[
+        DenseLayer(30, activation="tanh"),
+        DenseLayer(30, activation="tanh"),
         DenseLayer(1, activation="linear")
-    ], cost="mse", fitness_func=fitness)
+    ], cost="mse", optimizer="adam")
     return net
 
 
-def fitness(ind, net, x, y):
-    net.set_weights(ind)
-    cost = net.learn_batch(x, y)
-    return net.get_weights, cost
-
-
-def mate(ind1, ind2):
-    return np.mean((ind1, ind2), axis=0) + forge_net().get_weights(unfold=True)
-
-
 def xperiment():
-    net, pop = evolution()
+    net = forge_net()
     tpred = net.predict(tX)
     vpred = net.predict(vX)
     plt.ion()
@@ -63,15 +49,13 @@ def xperiment():
     plt.legend()
     batchno = 1
     while 1:
-        pop.run(epochs=1, survival_rate=0.5, mutation_rate=0.1, verbosity=0, x=tX, y=tY, net=net)
-        net.set_weights(pop.best)
-        # cost = net.train_on_batch(tX, tY)
+        cost = net.learn_batch(tX, tY)
         tpred = net.predict(tX)
         vpred = net.predict(vX)
         tobj.set_data(tX, tpred)
         vobj.set_data(vX, vpred)
         plt.pause(0.01)
-        t.set_text(templ.format(batchno, pop.grades.min()))
+        t.set_text(templ.format(batchno, cost))
         batchno += 1
 
 
