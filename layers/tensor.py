@@ -1,5 +1,5 @@
 from .abstract_layer import LayerBase, NoParamMixin
-from ..util import white, zX, zX_like
+from ..util import zX, zX_like, white
 
 
 class PoolLayer(NoParamMixin, LayerBase):
@@ -7,21 +7,19 @@ class PoolLayer(NoParamMixin, LayerBase):
     def __init__(self, fdim, compiled=True):
         LayerBase.__init__(self, activation="linear", trainable=False)
         if compiled:
-            from ..numbaops.lltensor import MaxPoolOp
+            print("Compiling PoolLayer...")
+            from ..llatomic.lltensor_op import MaxPoolOp
         else:
             from ..atomic import MaxPoolOp
         self.fdim = fdim
         self.filter = None
         self.op = MaxPoolOp()
 
-    def connect(self, to, inshape):
-        ic, iy, ix = inshape[-3:]
+    def connect(self, brain):
+        ic, iy, ix = brain.outshape[-3:]
         if any((iy % self.fdim, ix % self.fdim)):
-            raise RuntimeError(
-                "Incompatible shapes: {} % {}".format((ix, iy), self.fdim)
-            )
-        LayerBase.connect(self, to, inshape)
-        self.output = zX(ic, iy // self.fdim, ix // self.fdim)
+            raise RuntimeError(f"Incompatible shapes: {ix} % {iy} & {self.fdim}")
+        super().connect(brain)
 
     def feedforward(self, questions):
         """
@@ -30,28 +28,21 @@ class PoolLayer(NoParamMixin, LayerBase):
         :param questions: numpy.ndarray, a batch of outsize from the previous layer
         :return: numpy.ndarray, max pooled batch
         """
-        self.output, self.filter = self.op.apply(questions, self.fdim)
+        self.output, self.filter = self.op.forward(questions, self.fdim)
         return self.output
 
-    def backpropagate(self, error):
+    def backpropagate(self, delta):
         """
         Calculates the error of the previous layer.
-        :param error:
+        :param delta:
         :return: numpy.ndarray, the errors of the previous layer
         """
-        if self.position > 1:
-            return self.op.backward(error, self.filter)
+        return self.op.backward(delta, self.filter)
 
     @property
     def outshape(self):
-        return self.output.shape[-3:]
-
-    def capsule(self):
-        return LayerBase.capsule(self) + [self.fdim]
-
-    @classmethod
-    def from_capsule(cls, capsule):
-        return cls(fdim=capsule[-1])
+        ic, iy, ix = self.inshape
+        return ic, iy // self.fdim, ix // self.fdim
 
     def __str__(self):
         return "Pool-{}x{}".format(self.fdim, self.fdim)
@@ -60,78 +51,51 @@ class PoolLayer(NoParamMixin, LayerBase):
 class ConvLayer(LayerBase):
 
     def __init__(self, nfilters, filterx=3, filtery=3, **kw):
-
-        LayerBase.__init__(self, activation=kw.get("activation", "linear"), **kw)
-
-        self.compiled = kw.get("compiled", False)
+        super().__init__(activation=kw.get("activation", "linear"), **kw)
         self.nfilters = nfilters
         self.fx = filterx
         self.fy = filtery
         self.depth = 0
         self.stride = 1
-
         self.inshape = None
-
         self.op = None
 
-    def connect(self, to, inshape):
+    def connect(self, brain):
         if self.compiled:
-            from ..numbaops.lltensor import ConvolutionOp
+            print("Compiling ConvLayer...")
+            from ..llatomic import ConvolutionOp
         else:
             from ..atomic import ConvolutionOp
-        depth, iy, ix = inshape[-3:]
+        c, iy, ix = brain.outshape[-2:]
         if any((iy < self.fy, ix < self.fx)):
-            raise RuntimeError(
-                "Incompatible shapes: iy ({}) < fy ({}) OR ix ({}) < fx ({})"
-                .format(iy, self.fy, ix, self.fx)
-            )
-        LayerBase.connect(self, to, inshape)
+            raise RuntimeError(f"Incompatible shapes: iy ({iy}) < fy ({self.fy}) OR ix ({ix}) < fx ({self.fx})")
+        super().connect(brain)
         self.op = ConvolutionOp()
-        self.inshape = inshape
-        self.depth = depth
-        self.weights = white(self.nfilters, self.depth, self.fy, self.fx)
+        self.weights = white(self.nfilters, c, self.fx, self.fy)
         self.biases = zX(self.nfilters)
         self.nabla_b = zX_like(self.biases)
         self.nabla_w = zX_like(self.weights)
 
     def feedforward(self, X):
         self.inputs = X
-        self.output = self.activation(self.op.apply(X, self.weights, "valid"))
+        self.output = self.activation.forward(self.op.forward(X, self.weights, "valid"))
         return self.output
 
-    def backpropagate(self, error):
-        """
-
-        :param error: 4D tensor: (m, filter_number, x, y)
-        :return:
-        """
-
-        error *= self.activation.derivative(self.output)
-        # ishp (im, ic, iy, ix)
-        # fshp (fx, fy, fc, nf)
-        # eshp (im, nf, oy, ox) = oshp
-        # er.T (ox, oy, nf, im)
-        iT = self.inputs.transpose(1, 0, 2, 3)
-        eT = error.transpose(1, 0, 2, 3)
-        self.nabla_w = self.op.apply(iT, eT, mode="valid").transpose(1, 0, 2, 3)
+    def backpropagate(self, delta):
+        delta *= self.activation.backward(self.output)
+        self.nabla_w = self.op.forward(
+            self.inputs.transpose(1, 0, 2, 3),
+            delta.transpose(1, 0, 2, 3),
+            mode="valid"
+        ).transpose(1, 0, 2, 3)
         # self.nabla_b = error.sum()  # TODO: why is this commented out???
         rW = self.weights[:, :, ::-1, ::-1].transpose(1, 0, 2, 3)
-        backpass = self.op.apply(error, rW, "full")
-        return backpass
+        return self.op.forward(delta, rW, "full")
 
     @property
     def outshape(self):
-        oy, ox = tuple(ix - fx + 1 for ix, fx in
-                       zip(self.inshape[-2:], (self.fx, self.fy)))
-        return self.nfilters, ox, oy
-
-    def capsule(self):
-        return LayerBase.capsule(self) + [self.activation, self.get_weights(unfold=False)]
-
-    @classmethod
-    def from_capsule(cls, capsule):
-        nF, depth, fx, fy = capsule[-1][0].shape
-        return cls(nF, fx, fy, activation=capsule[-2], trainable=capsule[1])
+        iy, ix = self.inshape[-2:]
+        return self.nfilters, iy - self.fy, ix - self.fx
 
     def __str__(self):
         return "Conv({}x{}x{})-{}".format(self.nfilters, self.fy, self.fx, str(self.activation)[:4])

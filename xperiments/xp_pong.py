@@ -8,7 +8,7 @@ from brainforge.layers import DenseLayer
 from brainforge.reinforcement import PG, AgentConfig
 
 
-def prepro_coroutine(I):
+def prepro_coroutine(image):
 
     def ds(image):
         downsmpl = image[35:195].astype(float)
@@ -18,15 +18,15 @@ def prepro_coroutine(I):
         downsmpl[downsmpl != 0] = 1.  # everything else (paddles, ball) just set to 1
         return downsmpl
 
-    dsI = ds(I)
+    dsI = ds(image)
     pI = dsI.copy()  # type: np.ndarray
     while 1:
-        I = yield (dsI - pI).ravel()
+        image = yield (dsI - pI).ravel()
         pI = dsI
-        dsI = ds(I)
+        dsI = ds(image)
 
 
-RENDER = False
+RENDER = True
 
 env = gym.make("Pong-v0")
 nactions = env.action_space.n

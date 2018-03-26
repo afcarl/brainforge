@@ -1,10 +1,11 @@
+import numpy as np
 from collections import deque
 
 from csxdata.utilities.loader import pull_mnist_data
 
 from brainforge import BackpropNetwork
 from brainforge.layers.abstract_layer import LayerBase, NoParamMixin
-from brainforge.layers import DenseLayer
+from brainforge.layers import DenseLayer, Reshape, Flatten
 
 
 class DNI(NoParamMixin, LayerBase):
@@ -17,15 +18,18 @@ class DNI(NoParamMixin, LayerBase):
         self._previous = None
 
     def _default_synth(self):
+        inshape = np.prod(self.inshape),
         synth = BackpropNetwork(input_shape=self.inshape, layerstack=[
-            DenseLayer(self.inshape[0], activation="tanh"),
-            DenseLayer(self.inshape[0], activation="linear"),
-        ], cost="mse", optimizer="sgd")
+            Flatten(),
+            DenseLayer(int(np.prod(self.inshape[0])*1.5), activation="tanh"),
+            DenseLayer(inshape, activation="linear"),
+            Reshape(self.inshape)
+        ], cost="mse", optimizer="adam")
         return synth
 
-    def connect(self, to, inshape):
-        super().connect(to, inshape)
-        self._previous = to.layers[-1]
+    def connect(self, brain):
+        super().connect(brain)
+        self._previous = brain.layers[-1]
         if self.synth is None:
             self.synth = self._default_synth()
 
@@ -38,19 +42,14 @@ class DNI(NoParamMixin, LayerBase):
 
     def backpropagate(self, delta):
         m = self.memory.popleft()
-        print(f"\rSynth cost: {self.synth.cost(m, delta).sum():.4f}", end="")
-        self.synth.learn_batch(m, delta)
+        print(f"Synth cost: {self.synth.cost(m, delta).sum():.4f}")
+        synth_delta = self.synth.cost.derivative(m, delta)
+        self.synth.backpropagate(synth_delta)
+        self.synth.update(len(synth_delta))
 
     @property
     def outshape(self):
         return self.inshape
-
-    @classmethod
-    def from_capsule(cls, capsule):
-        pass
-
-    def __str__(self):
-        return "DNI"
 
 
 def build_decoupled_net(inshape, outshape):
@@ -71,11 +70,8 @@ def build_normal_net(inshape, outshape):
 
 def xperiment():
     lX, lY, tX, tY = pull_mnist_data()
-    net = build_decoupled_net(lX.shape[1:], lY.shape[1:])
-    for epoch in range(30):
-        net.fit(lX, lY, batch_size=128, epochs=1, verbose=0)
-        cost, acc = net.evaluate(tX, tY)
-        print(f"\nEpoch {epoch} done! Network accuracy: {acc:.2%}")
+    net = build_normal_net(lX.shape[1:], lY.shape[1:])
+    net.fit(lX, lY, batch_size=128, validation=(tX, tY), verbose=1)
 
 
 if __name__ == '__main__':

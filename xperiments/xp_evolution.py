@@ -1,7 +1,7 @@
 import numpy as np
 from matplotlib import pyplot as plt
 
-from brainforge.evolution import Population
+from brainforge.evolution import DifferentialEvolution
 
 
 def upscale(ind: np.ndarray):
@@ -24,10 +24,10 @@ def matefn2(ind1, ind2):
 TARGET = np.array([3., 3.])
 
 
-pop = Population(
+pop = DifferentialEvolution(
     loci=2,
     fitness_function=fitness,
-    mate_function=matefn2,
+    mate_function=matefn1,
     limit=100)
 
 plt.ion()
@@ -42,8 +42,8 @@ CS = plt.contour(X, Y, Z, cmap="hot")
 plt.clabel(CS, inline=1, fontsize=10)
 plt.show()
 means, stds, bests = [], [], []
-for i in range(100):
-    m, s, b = pop.run(1, verbosity=0, mutation_rate=0.01)
+for i in range(30):
+    m, s, b = pop.run(1, verbosity=0, mutation_rate=0.1)
     means += m
     stds += s
     bests += b
@@ -58,6 +58,6 @@ plt.plot(Xs, means, "b-")
 plt.plot(Xs, means+stds, "g--")
 plt.plot(Xs, means-stds, "g--")
 plt.plot(Xs, bests, "r-")
-plt.xlim([Xs.min(), Xs.max()])
-plt.ylim([bests.min(), (means+stds).max()])
+plt.xlim([Xs.min()-1, Xs.max()+1])
+plt.ylim([bests.min()-1, (means+stds).max()+1])
 plt.show()

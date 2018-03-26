@@ -1,1 +1,1 @@
-from ._costs import *
+from .cost_function import cost_factory, CostFunction

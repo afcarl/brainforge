@@ -1,1 +1,2 @@
-from ._evolution import *
+from .differential import DifferentialEvolution
+from .memetic import MemeticAlgorithm

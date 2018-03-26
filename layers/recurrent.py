@@ -3,58 +3,45 @@ import abc
 import numpy as np
 
 from .abstract_layer import FFBase
-from ..atomic import Sigmoid
-from ..util import white, white_like, zX, zX_like, ctx1
+from .. import atomic
+from ..util import ctx1, zX, zX_like, white, white_like
 
-sigmoid = Sigmoid()
+sigmoid = atomic.Sigmoid()
 
 
 class RecurrentBase(FFBase):
 
-    def __init__(self, neurons, activation, return_seq=False):
-        super().__init__(neurons, activation)
+    def __init__(self, neurons, activation, return_seq=False, **kw):
+        super().__init__(neurons, activation, **kw)
         self.Z = 0
         self.Zs = []
-        self.cache = []
+        self.cache = None
         self.gates = []
 
         self.time = 0
         self.return_seq = return_seq
 
-        self.cache = None
-
     @abc.abstractmethod
-    def feedforward(self, stimuli):
-        self.inputs = stimuli.transpose(1, 0, 2)
+    def feedforward(self, X):
+        self.inputs = X.transpose(1, 0, 2)
         self.time = self.inputs.shape[0]
         self.Zs, self.gates, self.cache = [], [], []
-        return zX(len(stimuli), self.neurons)
+        return zX(len(X), self.neurons)
 
     @abc.abstractmethod
-    def backpropagate(self, error):
+    def backpropagate(self, delta):
         self.nabla_w = zX_like(self.weights)
         self.nabla_b = zX_like(self.biases)
         if self.return_seq:
-            return error.transpose(1, 0, 2)
+            return delta.transpose(1, 0, 2)
         else:
-            error_tensor = zX(self.time, len(error), self.neurons)
-            error_tensor[-1] = error
+            error_tensor = zX(self.time, len(delta), self.neurons)
+            error_tensor[-1] = delta
             return error_tensor
-
-    def capsule(self):
-        return FFBase.capsule(self) + [self.neurons, self.activation, self.return_seq,
-                                       self.get_weights(unfold=False)]
-
-    @classmethod
-    def from_capsule(cls, capsule):
-        return cls(neurons=capsule[2], activation=capsule[3], return_seq=capsule[4])
 
     @property
     def outshape(self):
-        if self.return_seq:
-            return self.time, self.neurons
-        else:
-            return self.neurons,
+        return self.neurons,
 
     def __str__(self):
         return self.__class__.__name__ + "-{}-{}".format(self.neurons, str(self.activation)[:4])
@@ -62,143 +49,67 @@ class RecurrentBase(FFBase):
 
 class RLayer(RecurrentBase):
 
-    def connect(self, to, inshape):
-        self.Z = inshape[-1] + self.neurons
-        self.weights = white(self.Z, self.neurons)
-        self.biases = zX(self.neurons, )
-        super().connect(to, inshape)
-
-    def feedforward(self, questions):
-
-        output = super().feedforward(questions)
-
-        for t in range(self.time):
-            Z = np.concatenate((self.inputs[t], output), axis=-1)
-            output = self.activation(Z.dot(self.weights) + self.biases)
-
-            self.Zs.append(Z)
-            self.cache.append(output)
-
-        if self.return_seq:
-            self.output = np.stack(self.cache, axis=1)
+    def __init__(self, neurons, activation, return_seq=False, **kw):
+        super().__init__(neurons, activation, return_seq, **kw)
+        if self.compiled:
+            from .. import llatomic
+            print("Compiling RLayer...")
+            self.op = llatomic.RecurrentOp(activation)
         else:
-            self.output = self.cache[-1]
+            self.opt = atomic.RecurrentOp(activation)
 
-        return self.output
+    def connect(self, brain):
+        self.Z = brain.outshape[-1] + self.neurons
+        self.weights = white(self.Z, self.neurons)
+        self.biases = zX(self.neurons)
+        super().connect(brain)
 
-    def backpropagate(self, error):
-        """
-        Backpropagation through time (BPTT)
+    def feedforward(self, X):
+        super().feedforward(X)
+        self.output, self.Z = self.op.forward(self.inputs, self.weights, self.biases)
+        return self.output.transpose(1, 0, 2) if self.return_seq else self.output[-1]
 
-        :param error: the deltas flowing from the next layer
-        """
-
-        error = super().backpropagate(error)
-
-        # the gradient flowing backwards in time
-        dh = zX_like(error[-1])
-        # the gradient wrt the whole input tensor: dC/dX = dC/dY_{l-1}
-        dX = zX_like(self.inputs)
-
-        for t in range(self.time - 1, -1, -1):
-            output = self.cache[t]
-            Z = self.Zs[t]
-
-            dh += error[t]
-            dh *= self.activation.derivative(output)
-
-            self.nabla_w += Z.T @ dh
-            self.nabla_b += dh.sum(axis=0)
-
-            deltaZ = dh @ self.weights.T
-            dX[t] = deltaZ[:, :-self.neurons]
-            dh = deltaZ[:, -self.neurons:]
-
+    def backpropagate(self, delta):
+        delta = super().backpropagate(delta)
+        dX, self.nabla_w, self.nabla_b = self.op.backward(
+            Z=self.Z, O=self.output, E=delta, W=self.weights
+        )
         return dX.transpose(1, 0, 2)
 
 
 class LSTM(RecurrentBase):
 
-    def __init__(self, neurons, activation, bias_init_factor=7., return_seq=False):
-        super().__init__(neurons, activation, return_seq)
+    def __init__(self, neurons, activation, bias_init_factor=7., return_seq=False, **kw):
+        super().__init__(neurons, activation, return_seq, **kw)
         self.G = neurons * 3
         self.Zs = []
         self.gates = []
         self.bias_init_factor = bias_init_factor
+        if self.compiled:
+            from .. import llatomic
+            print("Compiling LSTM...")
+            self.op = llatomic.LSTMOp(activation)
+        else:
+            self.op = atomic.LSTMOp(activation)
 
-    def connect(self, to, inshape):
-        self.Z = inshape[-1] + self.neurons
+    def connect(self, brain):
+        self.Z = brain.outshape[-1] + self.neurons
         self.weights = white(self.Z, self.neurons * 4)
-        self.biases = zX(self.neurons * 4, ) + self.bias_init_factor
-        super().connect(to, inshape)
+        self.biases = zX(self.neurons * 4) + self.bias_init_factor
+        super().connect(brain)
 
     def feedforward(self, X):
+        super().feedforward(X)
+        self.output, self.Z, self.cache = self.op.forward(
+            X=self.inputs, W=self.weights, b=self.biases
+        )
+        return self.output.transpose(1, 0, 2) if self.return_seq else self.output[-1]
 
-        output = super().feedforward(X)
-        state = zX_like(output)
-
-        for t in range(self.time):
-            Z = np.concatenate((self.inputs[t], output), axis=1)
-
-            preact = Z @ self.weights + self.biases  # type: np.ndarray
-            preact[:, :self.G] = sigmoid(preact[:, :self.G])
-            preact[:, self.G:] = self.activation(preact[:, self.G:])
-
-            f, i, o, cand = np.split(preact, 4, axis=-1)
-
-            state = state * f + i * cand
-            state_a = self.activation(state)
-            output = state_a * o
-
-            self.Zs.append(Z)
-            self.gates.append(preact)
-            self.cache.append([output, state_a, state, preact])
-
-        if self.return_seq:
-            self.output = np.stack([cache[0] for cache in self.cache], axis=1)
-        else:
-            self.output = self.cache[-1][0]
-        return self.output
-
-    def backpropagate(self, error):
-
-        error = super().backpropagate(error)
-
-        actprime = self.activation.derivative
-        sigprime = sigmoid.derivative
-
-        dC = zX_like(error[-1])
-        dX = zX_like(self.inputs)
-        dZ = zX_like(self.Zs[0])
-
-        for t in range(-1, -(self.time + 1), -1):
-            output, Ca, state, preact = self.cache[t]
-            f, i, o, cand = np.split(self.gates[t], 4, axis=-1)
-
-            # Add recurrent delta to output delta
-            error[t] += dZ[:, -self.neurons:]
-
-            # Backprop into state
-            dC += error[t] * o * actprime(Ca)
-
-            state_yesterday = 0. if t == -self.time else self.cache[t - 1][2]
-            # Calculate the gate derivatives
-            df = state_yesterday * dC
-            di = cand * dC
-            do = Ca * error[t]
-            dcand = i * dC * actprime(cand)  # Backprop nonlinearity
-            dgates = np.concatenate((df, di, do, dcand), axis=-1)
-            dgates[:, :self.G] *= sigprime(self.gates[t][:, :self.G])  # Backprop nonlinearity
-
-            dC *= f
-
-            self.nabla_b += dgates.sum(axis=0)
-            self.nabla_w += self.Zs[t].T @ dgates
-
-            dZ = dgates @ self.weights.T
-
-            dX[t] = dZ[:, :-self.neurons]
-
+    def backpropagate(self, delta):
+        delta = super().backpropagate(delta)
+        dX, self.nabla_w, self.nabla_b = self.op.backward(
+            Z=self.Z, O=self.output, E=delta, W=self.weights, cache=self.cache
+        )
         return dX.transpose(1, 0, 2)
 
 
@@ -207,10 +118,10 @@ class GRU(RecurrentBase):
     def __init__(self, neurons, activation, return_seq=False):
         super().__init__(neurons, activation, return_seq)
 
-    def connect(self, to, inshape):
-        self.weights = white(inshape[-1] + self.neurons, self.neurons * 3)
+    def connect(self, brain):
+        self.weights = white(brain.outshape[-1] + self.neurons, self.neurons * 3)
         self.biases = zX(self.neurons * 3)
-        super().connect(to, inshape)
+        super().connect(brain)
 
     def feedforward(self, X):
         output = super().feedforward(X)
@@ -227,11 +138,11 @@ class GRU(RecurrentBase):
 
         for t in range(self.time):
             Z = ctx1(self.inputs[t], output)
-            U, R = np.split(sigmoid(Z @ Wur + bur), 2, axis=1)
+            U, R = np.split(sigmoid.forward(Z @ Wur + bur), 2, axis=1)
             K = R * output
 
             Zk = ctx1(self.inputs[t], K)
-            O = self.activation(Zk @ Wo + bo)
+            O = self.activation.forward(Zk @ Wo + bo)
             output = U * output + (1. - U) * O
 
             cache.append(output)
@@ -245,15 +156,15 @@ class GRU(RecurrentBase):
 
         return self.output
 
-    def backpropagate(self, error):
+    def backpropagate(self, delta):
         # alias these
         ct = np.concatenate
-        dact = self.activation.derivative
-        dsig = sigmoid.derivative
+        dact = self.activation.backward
+        dsig = sigmoid.backward
 
-        error = super().backpropagate(error)
+        delta = super().backpropagate(delta)
 
-        dh = zX_like(error[-1])
+        dh = zX_like(delta[-1])
         dX = zX_like(self.inputs)
 
         Wu, Wr, Wo = np.split(self.weights, 3, axis=1)
@@ -262,7 +173,7 @@ class GRU(RecurrentBase):
         for t in range(-1, -(self.time + 1), -1):
             (U, R, O), (Z, Zk) = self.gates[t], self.Zs[t]
             prevout = Z[:, -neu:]
-            dh += error[t]
+            dh += delta[t]
             dU = (prevout - O) * dsig(U) * dh
             dO = (1. - U) * dact(O) * dh  # type: np.ndarray
             dZk = dO @ Wo.T
@@ -284,8 +195,8 @@ class GRU(RecurrentBase):
 
 class ClockworkLayer(RecurrentBase):
 
-    def __init__(self, neurons, activaton, blocksizes=None, ticktimes=None, return_seq=False):
-        super().__init__(neurons, activaton, return_seq)
+    def __init__(self, neurons, activation, blocksizes=None, ticktimes=None, return_seq=False):
+        super().__init__(neurons, activation, return_seq)
 
         if blocksizes is None:
             block = neurons // 5
@@ -308,12 +219,13 @@ class ClockworkLayer(RecurrentBase):
                 msg += "Please also consider that timesteps < 0 are invalid!"
                 raise RuntimeError(msg)
         self.ticks = np.array(ticktimes)
-        self.tick_array = zX(self.neurons, )
+        self.tick_array = zX(self.neurons)
         print("CW blocks:", self.blocksizes)
         print("CW ticks :", self.ticks)
 
-    def connect(self, to, inshape):
+    def connect(self, brain):
 
+        inshape = brain.outshape
         self.Z = inshape[-1] + self.neurons
 
         W = zX(self.neurons, self.neurons)
@@ -328,17 +240,17 @@ class ClockworkLayer(RecurrentBase):
         self.weights = np.concatenate((W, U), axis=0)
         self.biases = zX(self.neurons)
 
-        super().connect(to, inshape)
+        super().connect(brain)
 
-    def feedforward(self, stimuli):
-        output = super().feedforward(stimuli)
+    def feedforward(self, X):
+        output = super().feedforward(X)
 
         for t in range(1, self.time + 1):
             time_gate = np.equal(t % self.tick_array, 0.)
             Z = np.concatenate((self.inputs[t - 1], output), axis=-1)
             gated_W = self.weights * time_gate[None, :]
             gated_b = self.biases * time_gate
-            output = self.activation(Z.dot(gated_W) + gated_b)
+            output = self.activation.forward(Z.dot(gated_W) + gated_b)
 
             self.Zs.append(Z)
             self.gates.append([time_gate, gated_W])
@@ -351,10 +263,10 @@ class ClockworkLayer(RecurrentBase):
 
         return self.output
 
-    def backpropagate(self, error):
-        error = super().backpropagate(error)
+    def backpropagate(self, delta):
+        delta = super().backpropagate(delta)
 
-        dh = zX_like(error[-1])
+        dh = zX_like(delta[-1])
         dX = zX_like(self.inputs)
 
         for t in range(self.time - 1, -1, -1):
@@ -362,8 +274,8 @@ class ClockworkLayer(RecurrentBase):
             Z = self.Zs[t]
             time_gate, gated_W = self.gates[t]
 
-            dh += error[t]
-            dh *= self.activation.derivative(output)
+            dh += delta[t]
+            dh *= self.activation.backward(output)
 
             self.nabla_w += (Z.T @ dh) * time_gate[None, :]
             self.nabla_b += dh.sum(axis=0) * time_gate
@@ -381,11 +293,10 @@ class Reservoir(RLayer):
 
     def __init__(self, neurons, activation, return_seq=False, r=0.1):
         RLayer.__init__(self, neurons, activation, return_seq)
-        self.trainable = False
         self.r = r
 
-    def connect(self, to, inshape):
-        super().connect(to, inshape)
+    def connect(self, brain):
+        super().connect(brain)
         wx, wy = self.weights.shape
         # Create a sparse weight matrix (biases are included)
         W = np.random.binomial(1, self.r, size=(wx, wy + 1)).astype(float)
@@ -394,7 +305,3 @@ class Reservoir(RLayer):
         W /= S[0] ** 2  # scale to unit spectral radius
         self.weights = W[:, :-1]
         self.biases = W[:, -1]
-
-    def backpropagate(self, error):
-        if self.position > 1:
-            return super().backpropagate(error)

@@ -6,7 +6,7 @@ from .abstract_agent import AgentBase
 class HillClimbing(AgentBase):
 
     def __init__(self, network, nactions, agentconfig=None, **kw):
-        super().__init__(network, agentconfig, **kw)
+        super().__init__(network, nactions, agentconfig, **kw)
         self.rewards = 0
         self.bestreward = 0
 

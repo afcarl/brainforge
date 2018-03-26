@@ -1,6 +1,7 @@
 import numpy as np
 
-_data = np.array([line.split("\t") for line in """5.1\t3.5\t1.4\t0.2\t1.0\t0.0\t0.0
+_data = np.array([line.split("\t") for line in """
+5.1\t3.5\t1.4\t0.2\t1.0\t0.0\t0.0
 4.9\t3.0\t1.4\t0.2\t1.0\t0.0\t0.0
 4.7\t3.2\t1.3\t0.2\t1.0\t0.0\t0.0
 4.6\t3.1\t1.5\t0.2\t1.0\t0.0\t0.0
@@ -149,7 +150,8 @@ _data = np.array([line.split("\t") for line in """5.1\t3.5\t1.4\t0.2\t1.0\t0.0\t
 6.3\t2.5\t5.0\t1.9\t0.0\t0.0\t1.0
 6.5\t3.0\t5.2\t2.0\t0.0\t0.0\t1.0
 6.2\t3.4\t5.4\t2.3\t0.0\t0.0\t1.0
-5.9\t3.0\t5.1\t1.8\t0.0\t0.0\t1.0""".split("\n")])
+5.9\t3.0\t5.1\t1.8\t0.0\t0.0\t1.0
+"""[1:-1].split("\n")])
 
 X, Y = _data[:, :4].astype(float), _data[:, 4:].astype(float)
 X -= X.mean()

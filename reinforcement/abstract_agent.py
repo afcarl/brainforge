@@ -10,9 +10,10 @@ class AgentBase(abc.ABC):
 
     type = ""
 
-    def __init__(self, network, agentconfig: AgentConfig, **kw):
+    def __init__(self, network, nactions, agentconfig: AgentConfig, **kw):
         if agentconfig is None:
             agentconfig = AgentConfig(**kw)
+        self.nactions = nactions
         self.net = network
         self.shadow_net = network.layers.get_weights()
         self.xp = xp_factory(agentconfig.xpsize, "drop", agentconfig.time)

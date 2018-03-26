@@ -1,11 +1,10 @@
 from brainforge.util import etalon
 from brainforge import LayerStack, BackpropNetwork
-from brainforge.layers import DenseLayer, DropOut
+from brainforge.layers import DenseLayer
 
 
 ls = LayerStack((4,), layers=[
     DenseLayer(120, activation="tanh"),
-    # DropOut(0.5),
     DenseLayer(3, activation="softmax")
 ])
 

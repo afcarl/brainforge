@@ -10,7 +10,7 @@ class PG(AgentBase):
     type = "PolicyGradient"
 
     def __init__(self, network, nactions, agentconfig=None, **kw):
-        super().__init__(network, agentconfig, **kw)
+        super().__init__(network, nactions, agentconfig, **kw)
         self.actions = np.arange(nactions)
         self.action_labels = np.eye(nactions)
         self.X = []
@@ -35,8 +35,8 @@ class PG(AgentBase):
         R = np.array(self.rewards[1:] + [reward])
         if self.cfg.gamma > 0.:
             R = discount_rewards(R, self.cfg.gamma)
-            # R -= R.mean()
-            # R /= (R.std() + 1e-7)
+            R -= R.mean()
+            R /= (R.std() + 1e-7)
         X, Y = np.stack(self.X, axis=0), np.stack(self.Y, axis=0)
         N = len(X)
 
@@ -47,7 +47,8 @@ class PG(AgentBase):
             pred = self.net.predict(X[start:start + m])
             cost += self.net.cost(pred, y)
             delta = self.net.cost.derivative(pred, y)
-            self.grad += self.net.backpropagate(delta * R[start:start+m, None])
+            self.net.backpropagate(delta * R[start:start + m, None])
+            self.grad += self.net.get_gradients(unfold=True)
 
         W = self.net.optimizer.optimize(
             self.net.layers.get_weights(unfold=True), self.grad, N

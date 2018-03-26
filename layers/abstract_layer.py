@@ -1,8 +1,8 @@
 import abc
 
 import numpy as np
-from .. import atomic
-from ..util import white_like, zX_like
+from .. import atomic, config
+from ..util import zX_like, white_like
 
 
 class LayerBase(abc.ABC):
@@ -11,29 +11,29 @@ class LayerBase(abc.ABC):
 
     def __init__(self, activation="linear", **kw):
 
-        self.position = 0
         self.brain = None
+        self.previous = None
         self.inputs = None
         self.output = None
         self.inshape = None
+        self.op = None
+        self.opb = None
 
         self.weights = None
         self.biases = None
         self.nabla_w = None
         self.nabla_b = None
 
-        self.connected = False
+        self.compiled = kw.get("compiled", config.compiled)
+        self.trainable = kw.get("trainable", self.trainable)
 
-        if isinstance(activation, str):
-            self.activation = atomic.activations[activation]()
-        else:
-            self.activation = activation
+        self.activation = atomic.activations[activation]() \
+            if isinstance(activation, str) else activation
 
-    def connect(self, to, inshape):
-        self.brain = to
-        self.inshape = inshape
-        self.position = len(self.brain.layers)
-        self.connected = True
+    def connect(self, brain):
+        self.brain = brain
+        self.previous = brain.layers[-1]
+        self.inshape = self.previous.outshape
 
     def shuffle(self) -> None:
         self.weights = white_like(self.weights)
@@ -52,33 +52,37 @@ class LayerBase(abc.ABC):
         else:
             self.weights, self.biases = w
 
+    def get_gradients(self, unfold=True):
+        nabla = [self.nabla_w, self.nabla_b]
+        return nabla if not unfold else np.concatenate([grad.ravel() for grad in nabla])
+
+    def set_gradients(self, nabla, fold=True):
+        if fold:
+            self.nabla_w = nabla[:self.nabla_w.size].reshape(self.nabla_w.shape)
+            self.nabla_b = nabla[self.nabla_w.size:].reshape(self.nabla_b.shape)
+        else:
+            self.nabla_w, self.nabla_b = nabla
+
     @property
     def gradients(self):
-        return np.concatenate([self.nabla_w.ravel(), self.nabla_b.ravel()])
+        return self.get_gradients(unfold=True)
 
     @property
     def nparams(self):
         return self.weights.size + self.biases.size
 
-    def capsule(self):
-        return [self.inshape]
+    @abc.abstractmethod
+    def feedforward(self, X): raise NotImplementedError
 
     @abc.abstractmethod
-    def feedforward(self, stimuli: np.ndarray) -> np.ndarray: raise NotImplementedError
-
-    @abc.abstractmethod
-    def backpropagate(self, error) -> np.ndarray: raise NotImplementedError
-
-    @classmethod
-    @abc.abstractmethod
-    def from_capsule(cls, capsule): raise NotImplementedError
+    def backpropagate(self, delta): raise NotImplementedError
 
     @property
     @abc.abstractmethod
     def outshape(self): raise NotImplementedError
 
-    @abc.abstractmethod
-    def __str__(self): raise NotImplementedError
+    def __str__(self):
+        return self.__class__.__name__
 
 
 class NoParamMixin(abc.ABC):
@@ -102,15 +106,15 @@ class FFBase(LayerBase):
 
     """Base class for the fully connected layer types"""
 
-    def __init__(self, neurons, activation, **kw):
-        LayerBase.__init__(self, activation, **kw)
+    def __init__(self, neurons, activation="linear", **kw):
+        super().__init__(activation, **kw)
         if not isinstance(neurons, int):
             neurons = np.prod(neurons)
         self.neurons = int(neurons)
 
     @abc.abstractmethod
-    def connect(self, to, inshape):
-        LayerBase.connect(self, to, inshape)
+    def connect(self, brain):
+        super().connect(brain)
         self.nabla_w = zX_like(self.weights)
         self.nabla_b = zX_like(self.biases)
 

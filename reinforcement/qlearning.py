@@ -11,18 +11,12 @@ class DQN(AgentBase):
     type = "DQN"
 
     def __init__(self, network, nactions, agentconfig=None, **kw):
-        super().__init__(network, agentconfig, **kw)
-        self.X = []
-        self.Q = []
-        self.R = []
-        self.A = []
-        self.nactions = nactions
+        super().__init__(network, nactions, agentconfig, **kw)
+        self.X = self.Q = self.R = self.A = None
+        self.reset()
 
     def reset(self):
-        self.X = []
-        self.Q = []
-        self.R = []
-        self.A = []
+        self.X, self.Q, self.R, self.A = [], [], [], []
 
     def sample(self, state, reward):
         self.X.append(state)

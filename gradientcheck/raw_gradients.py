@@ -7,39 +7,37 @@ def analytical_gradients(gcobj, X, Y):
     print("Forward pass:", end=" ")
     preds = network.predict(X)
     print("done! Backward pass:", end=" ")
-    delta = network.cost.derivative(preds, Y)
-    nabla = network.backpropagate(delta)
+    delta = network.cost.derivative(outputs=preds, targets=Y)
+    network.backpropagate(delta)
     print("done!")
-    return nabla
+    return network.get_gradients(unfold=True)
 
 
 def numerical_gradients(gcobj, X, Y):
     network = gcobj.net
-    ws = network.layers.get_weights(unfold=True)
+    ws = network.get_weights(unfold=True)
     numgrads = np.zeros_like(ws)
     perturb = np.zeros_like(ws)
 
     nparams = ws.size
-    lstr = len(str(nparams))
     print("Calculating numerical gradients...")
     for i in range(nparams):
-        print("\r{0:>{1}} / {2}".format(i + 1, lstr, nparams), end=" ")
+        print(f"\r{nparams} / {i+1}", end=" ")
         perturb[i] += gcobj.eps
 
-        network.layers.set_weights(ws + perturb, fold=True)
+        network.set_weights(ws + perturb, fold=True)
         pred1 = network.predict(X)
         cost1 = network.cost(pred1, Y)
-        network.layers.set_weights(ws - perturb, fold=True)
+        network.set_weights(ws - perturb, fold=True)
         pred2 = network.predict(X)
         cost2 = network.cost(pred2, Y)
 
         numgrads[i] = (cost1 - cost2)
         perturb[i] = 0.
 
-    numgrads /= 2. * gcobj.eps
-    network.layers.set_weights(ws, fold=True)
+    numgrads /= (2. * gcobj.eps)
+    network.set_weights(ws, fold=True)
 
     print("Done!")
 
     return numgrads
-

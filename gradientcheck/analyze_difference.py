@@ -31,7 +31,15 @@ def display_matrices(mats):
         for mat in mats:
             display_matrices(mat)
     else:
-        pyplot.imshow(np.atleast_2d(mats), cmap="hot")
+        mats = np.atleast_2d(mats)
+        xs, ys = mats.shape
+        if xs > ys:
+            mats = mats.T
+            xs, ys = ys, xs
+        pyplot.imshow(np.sqrt(mats), cmap="hot")
+        pyplot.yticks(range(xs))
+        pyplot.xticks(range(ys))
+        pyplot.tight_layout()
         pyplot.show()
 
 
