@@ -2,7 +2,7 @@ import numpy as np
 
 from matplotlib import pyplot as plt
 
-from brainforge import BackpropNetwork
+from brainforge import NeuroEvolution, BackpropNetwork, LayerStack
 from brainforge.layers import DenseLayer
 
 np.random.seed(1234)
@@ -22,25 +22,31 @@ vX, vY = rX[varg], rY[varg]
 tX += np.random.randn(*tX.shape) / np.sqrt(tX.size*0.25)
 
 
-def forge_net():
-    net = BackpropNetwork(input_shape=(1,), layerstack=[
+def forge_layerstack():
+    return LayerStack(input_shape=(1,), layers=[
         DenseLayer(30, activation="tanh"),
-        DenseLayer(30, activation="tanh"),
+        DenseLayer(30, activation="relu"),
         DenseLayer(1, activation="linear")
-    ], cost="mse", optimizer="adam")
-    return net
+    ])
+
+
+def forge_neuroevolution_net():
+    return NeuroEvolution(forge_layerstack(), cost="mse")
+
+
+def forge_backpropagation_net():
+    return BackpropNetwork(forge_layerstack(), cost="mse", optimizer="adam")
 
 
 def xperiment():
-    net = forge_net()
+    net = forge_backpropagation_net()
+    # net = forge_neuroevolution_net()
     tpred = net.predict(tX)
     vpred = net.predict(vX)
     plt.ion()
     plt.plot(tX, tY, "b--", alpha=0.5, label="Training data (noisy)")
     plt.plot(rX, rY, "r--", alpha=0.5, label="Validation data (clean)")
-    plt.ylim(-2, 2)
-    plt.plot(rX, np.ones_like(rX), c="black", linestyle="--")
-    plt.plot(rX, -np.ones_like(rX), c="black", linestyle="--")
+    plt.ylim(min(rY)-1, max(rY)+1)
     plt.plot(rX, np.zeros_like(rX), c="grey", linestyle="--")
     tobj, = plt.plot(tX, tpred, "bo", markersize=3, alpha=0.5, label="Training pred")
     vobj, = plt.plot(vX, vpred, "ro", markersize=3, alpha=0.5, label="Validation pred")
