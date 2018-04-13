@@ -25,7 +25,7 @@ tX += np.random.randn(*tX.shape) / np.sqrt(tX.size*0.25)
 def forge_layerstack():
     return LayerStack(input_shape=(1,), layers=[
         DenseLayer(30, activation="tanh"),
-        DenseLayer(30, activation="relu"),
+        DenseLayer(30, activation="tanh"),
         DenseLayer(1, activation="linear")
     ])
 
@@ -39,8 +39,8 @@ def forge_backpropagation_net():
 
 
 def xperiment():
-    net = forge_backpropagation_net()
-    # net = forge_neuroevolution_net()
+    # net = forge_backpropagation_net()
+    net = forge_neuroevolution_net()
     tpred = net.predict(tX)
     vpred = net.predict(vX)
     plt.ion()
