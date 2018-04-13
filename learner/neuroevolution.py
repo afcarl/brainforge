@@ -1,5 +1,5 @@
 from evolute import DifferentialEvolution
-from evolute.fitness import SimpleFunction
+from evolute.evaluation import SimpleFitness
 
 from .abstract_learner import Learner
 
@@ -13,7 +13,7 @@ class NeuroEvolution(Learner):
         self.population = None
         self.population = DifferentialEvolution(
             loci=self.layers.nparams,
-            fitness_wrapper=SimpleFunction(self.fitness),
+            fitness_wrapper=SimpleFitness(self.fitness),
             limit=self.population_size
         )
 
@@ -21,8 +21,8 @@ class NeuroEvolution(Learner):
         args = {"epochs": 1, "survival_rate": 0.2, "mutation_rate": 0.5, "verbosity": 0}
         args.update(kw)
         self.population.epoch(**kw, X=X, Y=Y)
-        self.layers.set_weights(self.population.get_best(as_phenotype=True))
-        return self.population.grades.min()
+        self.layers.set_weights(self.population.get_best())
+        return self.population.fitnesses.min()
 
     def fitness(self, genome, X, Y):
         self.layers.set_weights(genome)

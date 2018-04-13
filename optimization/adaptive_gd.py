@@ -27,10 +27,10 @@ class RMSprop(Adagrad):
         self.decay = decay
 
     def optimize(self, W, gW, m):
-        nabla = gW / m
+        eta = self.eta / m
         self.memory *= self.decay
-        self.memory += (1. - self.decay) * (nabla ** 2.)
-        updates = (self.eta * nabla) / np.sqrt(self.memory + self.epsilon)
+        self.memory += (1. - self.decay) * (gW ** 2.)
+        updates = (eta * gW) / np.sqrt(self.memory + self.epsilon)
         return W - updates
 
     def __str__(self):

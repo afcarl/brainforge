@@ -66,7 +66,7 @@ class ConvLayer(LayerBase):
             from ..llatomic import ConvolutionOp
         else:
             from ..atomic import ConvolutionOp
-        c, iy, ix = brain.outshape[-2:]
+        c, iy, ix = brain.outshape[-3:]
         if any((iy < self.fy, ix < self.fx)):
             raise RuntimeError(f"Incompatible shapes: iy ({iy}) < fy ({self.fy}) OR ix ({ix}) < fx ({self.fx})")
         super().connect(brain)

@@ -5,6 +5,8 @@ from matplotlib import pyplot as plt
 from brainforge import NeuroEvolution, BackpropNetwork, LayerStack
 from brainforge.layers import DenseLayer
 
+from evolute.operators import ScatterMateWrapper, SmoothMate
+
 np.random.seed(1234)
 
 rX = np.linspace(-6., 6., 200)[:, None]
@@ -31,7 +33,7 @@ def forge_layerstack():
 
 
 def forge_neuroevolution_net():
-    return NeuroEvolution(forge_layerstack(), cost="mse")
+    return NeuroEvolution(forge_layerstack(), cost="mse", mate_op=ScatterMateWrapper(SmoothMate, sigma=3.))
 
 
 def forge_backpropagation_net():
